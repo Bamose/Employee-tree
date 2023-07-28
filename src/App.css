@@ -2,7 +2,9 @@
   text-align: center;
 }
 
-
+section {
+  padding-top: 90px; /* Adjust this based on the height of your nav bar */
+}
 
 body{
  background-image: url("C:\Users\Anella\Downloads\dot-grid.png");
@@ -42,3 +44,21 @@ body{
 .slide-container .nav > div svg:hover {
   transform: scale(1.2);
 }
+/* .fade-and-scale-enter {
+  opacity: 0;
+  transform: scale(0.9);
+}
+.fade-and-scale-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 500ms, transform 1000ms;
+}
+.fade-and-scale-exit {
+  opacity: 1;
+  transform: scale(1);
+}
+.fade-and-scale-exit-active {
+  opacity: 0;
+  transform: scale(0.9);
+  transition: opacity 500ms, transform 1000ms;
+} */

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TextInput, Button, Select } from '@mantine/core';
-import { useForm } from '@mantine/form';
-import { getDatabase, ref, set, child, remove } from 'firebase/database';
+import { useForm,isNotEmpty,isEmail} from '@mantine/form';
+import { getDatabase, ref, set, child, remove, onValue, off } from 'firebase/database';
 import { useAppDispatch, FetchPositions } from './Store';
 import { PositionTree } from './PositionTree';
 import { Position, Employee } from './PositionTree';
@@ -10,7 +10,8 @@ import { AsyncThunkAction, AnyAction } from '@reduxjs/toolkit'
 import { v4 as uuidv4 } from 'uuid';
 import { AiOutlineEdit } from 'react-icons/ai';
 import { query, orderByChild, equalTo, get } from "firebase/database";
-
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 export const Config = {
     apiKey: "AIzaSyAeqfuDaABRKYvdgneWiptC0fMrQsOepw4",
     authDomain: "employee-list-d5b9f.firebaseapp.com",
@@ -31,133 +32,165 @@ export const Config = {
   
   const db = getDatabase(app)
 
-  export const UpdatePosition = () => {
-    const [showUpdatePosition, setShowUpdatePosition] = useState(false);
 
-  const handleToggle = () => {
-    setShowUpdatePosition(!showUpdatePosition);
-  };
-  const handleCancel = () => {
-    setShowUpdatePosition(false);
-  };
+  export const UpdatePosition = ({position}: {position: Position}) => {
+    const [showUpdatePosition, setShowUpdatePosition] = useState(false);
+    const handleToggle = () => {
+      setShowUpdatePosition(!showUpdatePosition);
+    };
+    const handleCancel = () => {
+      setShowUpdatePosition(false);
+    };
     const dispatch = useAppDispatch();
     const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
-
     const [positions, setPositions] = useState<Position[]>([]);
-  
-    const form = useForm({
+    
+    const form = useForm<{ name: string; parentId: string | null; positionId: string }>({
       initialValues: {
         name: '',
-        parentId: '',
+        parentId: null,
         positionId: '',
       },
+      validate: {
+    
+        name: isNotEmpty('Enter your current job'),
+      
+        
+      },
     });
-  
+    useEffect(() => {
+      form.setFieldValue('name', position.name);
+      form.setFieldValue('positionId', position.id);
+      form.setFieldValue('parentId', position.parentId || 'none');
+      setSelectedPosition(position); // Set selectedPosition state
+    }, [position]);
     useEffect(() => {
       const dbRef = ref(getDatabase());
-      get(child(dbRef, 'positions/')).then((snapshot) => {
+      const listener = onValue(child(dbRef, 'positions/'), (snapshot) => {
         if (snapshot.exists()) {
           setPositions(Object.values(snapshot.val()));
         } else {
           console.log("No data available");
         }
-      }).catch((error) => {
+      }, (error) => {
         console.error(error);
       });
-    }, []);
   
-    const handlePositionSelect = (value: any) => {
-      const position = positions.find(p => p.id === value);
-      if (position) {
-        setSelectedPosition(position);
-        form.setFieldValue('name', position.name);
-        form.setFieldValue('positionId', position.id);  // add this line
-      }
-    };
+      // Cleanup the listener when the component unmounts
+      return () => off(dbRef, 'value', listener);
+    }, []);
+    
+    
+    // Use Effect hook to trigger the handlePositionSelect when position prop changes
+  
     const handleParentSelect = (value: string) => {
-      form.setFieldValue('parentId', value || '');
+      form.setFieldValue('parentId', value === 'none' ? null : value);
     };
   
     const handleSubmit = form.onSubmit((values) => {
       if (!values.positionId) {
-        alert('Please select a position first.');
+        toast.warn('Please select a position first.');
         return;
       }
-  
+    
+      // Rule 1: Top level position can only update its name
+      if (selectedPosition?.parentId === null && values.parentId !== 'none') {
+        toast.info('Top level position can only update its name.');
+        return;
+      }
+    
+      const potentialParent = positions.find(p => p.id === values.parentId);
+    
+      // Rule 3: A child cannot become a parent of its parent or its ancestors
+      if (potentialParent && values.parentId !== null) {
+        let parentId: string | null = potentialParent.parentId;
+        while (parentId !== null) {
+          if (selectedPosition && parentId === selectedPosition.id) {
+          toast.error('A position cannot become a child of its descendants.');
+            return;
+          }
+          const current = positions.find(p => p.id === parentId);
+          if (!current) {
+            break;
+          }
+          parentId = current.parentId;
+        }
+      }
+      
       const updatedPosition = {
         id: values.positionId,
         name: values.name,
-        parentId: values.parentId || null,
+        parentId: values.parentId === 'none' ? null : values.parentId,
       };
-  
+    
       set(ref(getDatabase(), 'positions/' + updatedPosition.id), updatedPosition)
         .then(() => {
-          console.log('Data updated successfully');
+          toast.success('Data updated successfully');
           form.reset();
           dispatch(FetchPositions());
+          handleToggle();
         })
         .catch((error) => {
-          console.error('Data update failed:', error);
+          toast.error('Data update failed:', error);
         });
     });
-  
+   
     return (
       <div className="flex items-right justify-end">
-      {!showUpdatePosition ? (
-      < AiOutlineEdit onClick={handleToggle}></AiOutlineEdit>
-        
-      ) : (
-        <div className="flex items-center">
-         
-          <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
-            <div className="bg-white w-1/2 rounded p-6">
-            <h2>Update Position</h2>
-        <Select
-          data={positions.map(({name, id}) => ({label: name, value: id}))}
-          onChange={handlePositionSelect}
-          placeholder="Select a position"
-          clearable
-        />
-        <form onSubmit={handleSubmit}>
-        <TextInput 
-  label="Name" 
-  required 
-  value={form.values.name} 
-  onChange={(event) => form.setFieldValue('name', event.target.value)} 
-/>
-
-          <Select
-            placeholder="Select a parent position"
-            data={positions.map(({name, id}) => ({label: name, value: id}))}
-            value={form.values.parentId}
-            onChange={handleParentSelect}
-            clearable
-          />
-           <Button variant="outline" type="submit">Update Position</Button>
-          <Button
-            className="text-amber-500 hover:bg-slate-400/50 m-3"
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-        </form>
+        {!showUpdatePosition ? (
+          <AiOutlineEdit className="hover:scale-125" onClick={handleToggle} />
+        ) : (
+          <div className="flex items-center z-50">
+            <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
+              <div className="bg-white w-1/2 rounded p-6">
+                <h2>Update Position</h2>
+                <form onSubmit={handleSubmit}>
+                  <TextInput
+                    label="Name"
+                   
+                    value={form.values.name}
+                    onChange={(event) => form.setFieldValue('name', event.target.value)}
+                  />
+                <Select className='mt-2'
+                  key={positions.length}
+                  label="Parent Id"
+                  placeholder="Select a parent position"
+                  data={[
+                    { label: '', value: 'none' },
+                    ...positions
+                      .filter(position => position.id !== selectedPosition?.id)
+                      .sort((a, b) => a.name.localeCompare(b.name)) // Add this line to sort by name
+                      .map(({ name, id }) => ({ label: name, value: id })),
+                  ]}
+                  value={form.values.parentId || 'none'}
+                  onChange={handleParentSelect}
+                  clearable
+                />
+                  <Button variant="outline" type="submit" disabled={selectedPosition?.parentId === null}>
+                    Update Position
+                  </Button>
+                  <Button className="text-amber-500 hover:bg-slate-400/50 m-3" onClick={handleCancel}>
+                    Cancel
+                  </Button>
+                </form>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     );
-  };
- 
-  export const UpdateEmployee = () => {
+};
+
+
+
+  export const UpdateEmployee = ({ employee }: { employee: Employee }) => {
     const [showUpdateEmployee, setShowUpdateEmployee] = useState(false);
-    const [employees, setEmployees] = useState<Employee[]>([]);
     const [positions, setPositions] = useState<Position[]>([]);
-    const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   
     const handleToggle = () => {
       setShowUpdateEmployee(!showUpdateEmployee);
     };
+  
     const handleCancel = () => {
       setShowUpdateEmployee(false);
     };
@@ -175,46 +208,26 @@ export const Config = {
       }).catch((error) => {
         console.error(error);
       });
-  
-      get(child(dbRef, 'employees/')).then((snapshot) => {
-        if (snapshot.exists()) {
-          setEmployees(Object.values(snapshot.val()));
-        } else {
-          console.log("No data available");
-        }
-      }).catch((error) => {
-        console.error(error);
-      });
     }, []);
   
     const form = useForm({
       initialValues: {
-        id: '',
-        email: '',
-        name: '',
-        positionId: '', // this will now hold the position id
+        id: employee.id,
+        email: employee.email,
+        name: employee.name,
+        positionId: employee.positionId, // this will now hold the position id
+      },
+      validate: {
+    
+        name: isNotEmpty('Enter your name'),
+        email: isEmail('Invalid email'),
+        
       },
     });
   
-    const handleEmployeeSelect = (value: any) => {
-      const employee = employees.find(e => e.id === value);
-      if (employee) {
-        setSelectedEmployee(employee);
-        form.setFieldValue('email', employee.email);
-        form.setFieldValue('name', employee.name);
-        form.setFieldValue('positionId', employee.positionId);
-        form.setFieldValue('id', employee.id);
-      }
-    };
-  
     const handleSubmit = () => {
-      if (!selectedEmployee) {
-        alert('Please select an employee to update');
-        return;
-      }
-  
       const updatedEmployee = {
-        id: selectedEmployee.id,
+        id: form.values.id,
         email: form.values.email,
         name: form.values.name,
         positionId: form.values.positionId,
@@ -222,52 +235,50 @@ export const Config = {
   
       set(ref(db, 'employees/' + updatedEmployee.id), updatedEmployee)
         .then(() => {
-          console.log('Data updated successfully');
+         toast.success('Data updated successfully');
           form.reset();
-          setSelectedEmployee(null);
           dispatch(FetchPositions()); // trigger a re-fetch
+          handleToggle();
         })
         .catch((error) => {
-          console.error('Data update failed:', error);
+         toast.error('Data update failed:', error);
         });
     };
   
     return (
       <div className="flex items-right justify-end">
-      {!showUpdateEmployee ? (
-      < AiOutlineEdit onClick={handleToggle}></AiOutlineEdit>
-        
-      ) : (
-        <div className="flex items-center">
-         
-          <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
-            <div className="bg-white w-1/2 rounded p-6">
-            <h2>Update Employee</h2>
-            <form onSubmit={form.onSubmit(handleSubmit)}>
-               <Select
-                 data={employees.map(({name, id}) => ({label: name, value: id}))}
-                 onChange={handleEmployeeSelect}
-                 placeholder="Select an employee"
-               />
-               <TextInput label="Email" required {...form.getInputProps('email')} />
-               <TextInput label="Name" required {...form.getInputProps('name')} />
-               <Select
-                 label="Position"
-                 placeholder="Select a position"
-                 required
-                 data={positions.map(position => ({ value: position.id, label: position.name }))}
-                 {...form.getInputProps('positionId')}
-               />
-               <Button  variant="outline" type="submit">Update Employee</Button>
-               <Button  className="text-amber-500 hover:bg-slate-400/50 m-3" onClick={handleCancel}>Cancel</Button>
-             </form>
+        {!showUpdateEmployee ? (
+          <AiOutlineEdit className="cursor-pointer hover:scale-125" onClick={handleToggle} />
+        ) : (
+          <div className="flex items-center z-50">
+            <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
+              <div className="bg-white w-1/2 rounded p-6">
+                <h2>Update Employee</h2>
+                <form onSubmit={form.onSubmit(handleSubmit)}>
+                  <TextInput label="Email"  {...form.getInputProps('email')} />
+                  <TextInput label="Name"  {...form.getInputProps('name')} />
+                  <Select
+  key={employee.positionId || 'initial'} // This will change when employee's positionId changes, causing a re-render
+  label="Position"
+  placeholder="Select a position"
+  required
+  data={positions
+    .sort((a, b) => a.name.localeCompare(b.name)) // sort the positions array before mapping it
+    .map(position => ({ value: position.id, label: position.name }))}
+  {...form.getInputProps('positionId')}
+/>
+
+                  <Button variant="outline" type="submit">Update Employee</Button>
+                  <Button className="text-amber-500 hover:bg-slate-400/50 m-3" onClick={handleCancel}>Cancel</Button>
+                </form>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
     );
   };
+  
 
  
   

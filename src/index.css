@@ -2,10 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 .custom-slide-height {
-    height: 70vh !important;
+    height: 60vh !important;
   }
 .h-70{
-    height: 70vh;
+    height: 60vh;
 }
 .position {
   display: flex;
@@ -24,6 +24,14 @@
   font-size: 1.25rem;
 }
 
+/* index.css */
+a {
+  transition: border-b 0.2s;
+}
+
+a:hover {
+  border-b: 2px solid rgb(224, 148, 5);
+}
   
   
   

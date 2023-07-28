@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TextInput, Button } from '@mantine/core';
 import { useForm } from '@mantine/form';
-import { getDatabase, ref, set, child, remove } from 'firebase/database';
+import { getDatabase, ref, set, child, remove,onValue,off } from 'firebase/database';
 import { useAppDispatch, FetchPositions,FetchEmployees } from './Store';
 import { PositionTree } from './PositionTree';
 import { Position,Employee } from './PositionTree';
@@ -11,6 +11,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, orderByChild, equalTo, get } from "firebase/database";
  import { Select, SelectItem } from '@mantine/core';
  import { AiOutlineDelete } from 'react-icons/ai';
+ import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 export const Config = {
     apiKey: "AIzaSyAeqfuDaABRKYvdgneWiptC0fMrQsOepw4",
     authDomain: "employee-list-d5b9f.firebaseapp.com",
@@ -34,168 +36,135 @@ export const Config = {
 
 // ... other code
 
-export const DeletePosition = () => {
+export const DeletePosition = ({ position }: { position: Position }) => {
   const dispatch = useAppDispatch();
-  const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
   const [showDeletePosition, setShowDeletePosition] = useState(false);
+  const [positions, setPositions] = useState<Position[]>([]);
 
   const handleToggle = () => {
     setShowDeletePosition(!showDeletePosition);
   };
+
   const handleCancel = () => {
     setShowDeletePosition(false);
   };
 
   useEffect(() => {
     const dbRef = ref(getDatabase());
-    get(child(dbRef, 'positions/')).then((snapshot) => {
+    const listener = onValue(child(dbRef, 'positions/'), (snapshot) => {
       if (snapshot.exists()) {
         setPositions(Object.values(snapshot.val()));
       } else {
         console.log("No data available");
       }
-    }).catch((error) => {
+    }, (error) => {
       console.error(error);
     });
+
+    // Cleanup the listener when the component unmounts
+    return () => off(dbRef, 'value', listener);
   }, []);
 
-  const handlePositionSelect = (positionId: string | null) => {
-    setSelectedPositionId(positionId);
-  };
-
   const handleDelete = () => {
-    if (selectedPositionId) {
-      remove(ref(db, 'positions/' + selectedPositionId))
-        .then(() => {
-          console.log('Position deleted successfully');
-          setSelectedPositionId(null); // Reset selected position
-          dispatch(FetchPositions()); // Refresh positions
-        })
-        .catch((error) => {
-          console.error('Failed to delete position:', error);
-        });
+    const hasChildPositions = positions.some(pos => pos.parentId === position.id);
+  
+    if (hasChildPositions) {
+      toast.error("This position has child positions. You cannot delete it.");
     } else {
-      alert('Please select a position first.');
+      
+        remove(ref(db, 'positions/' + position.id))
+          .then(() => {
+            console.log('Position deleted successfully');
+            dispatch(FetchPositions()); // Refresh positions
+            handleToggle();
+          })
+          .catch((error) => {
+            console.error('Failed to delete position:', error);
+          });
+      
     }
   };
   
 
   return (
     <div className="flex items-right justify-end z-10">
-{!showDeletePosition ? (
-  <AiOutlineDelete
-   
-    onClick={handleToggle}
-  >
-    
-  </AiOutlineDelete>
-) : (
-  <div className="flex items-center">
-   
-    <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
-      <div className="bg-white w-1/2 rounded p-6">
-      <h2>Delete Position</h2>
-      <Select
-        label="Select a position to delete"
-        placeholder="Select a position"
-        data={positions.map(position => ({ value: position.id, label: position.name }))}
-        onChange={handlePositionSelect}
-        value={selectedPositionId}
-      />
-      <Button variant="outline" onClick={handleDelete}>
-        Delete Position
-      </Button>
-      <Button
-            className="text-amber-500 hover:bg-slate-400/50 m-3"
-            onClick={handleCancel}
-          >
-            Cancel
-          </Button>
-      </div>
+      {!showDeletePosition ? (
+        <AiOutlineDelete
+          className="hover:scale-125"
+          onClick={handleToggle}
+        />
+      ) : (
+        <div className="flex items-center z-50">
+          <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
+            <div className="bg-white w-1/3 rounded p-6">
+              <h2>Delete Position</h2>
+              <p>Are you sure you want to delete the position "{position.name}"?</p>
+              <Button variant="outline" color="red" onClick={handleDelete}>Delete Position</Button>
+           
+              <Button variant="outline" 
+                className=" m-3 "
+                onClick={handleCancel}
+              >Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
-  </div>
-)}
-</div>
   );
 };
 
 
-export const DeleteEmployee = () => {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+
+export const DeleteEmployee = ({ employee }: { employee: Employee }) => {
   const dispatch = useAppDispatch();
   const [showDeleteEmployee, setShowDeleteEmployee] = useState(false);
 
   const handleToggle = () => {
     setShowDeleteEmployee(!showDeleteEmployee);
   };
+
   const handleCancel = () => {
     setShowDeleteEmployee(false);
   };
-  useEffect(() => {
-    const dbRef = ref(getDatabase());
-    get(child(dbRef, 'employees/')).then((snapshot) => {
-      if (snapshot.exists()) {
-        setEmployees(Object.values(snapshot.val()));
-      } else {
-        console.log("No data available");
-      }
-    }).catch((error) => {
-      console.error(error);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!employees.find(e => e.id === selectedEmployeeId)) {
-      setSelectedEmployeeId(null);
-    }
-  }, [employees, selectedEmployeeId]);
 
   const handleDelete = () => {
-    if (selectedEmployeeId) {
-      remove(ref(db, 'employees/' + selectedEmployeeId))
+    // Show a confirmation dialog before deleting
+ 
+      remove(ref(db, 'employees/' + employee.id))
         .then(() => {
-          console.log('Employee deleted successfully');
-          setSelectedEmployeeId(null); // Reset selected employee
+          toast.success('Employee deleted successfully');
           dispatch(FetchPositions()); // Refresh positions
           dispatch(FetchEmployees());
+          handleToggle();
         })
         .catch((error) => {
           console.error('Failed to delete employee:', error);
         });
-    } else {
-      alert('Please select an employee first.');
-    }
+    
   };
+
 
   return (
     <div className="flex items-right justify-end z-10">
   {!showDeleteEmployee ? (
    <AiOutlineDelete
-   
+   className="hover:scale-125"
    onClick={handleToggle}
  >
    
  </AiOutlineDelete>
   ) : (
-  <div className="flex items-center">
+  <div className="flex items-center z-50">
    
     <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
-      <div className="bg-white w-1/2 rounded p-6">
+      <div className="bg-white w-1/3 rounded p-6">
       <h2>Delete Employee</h2>
-      <Select
-          label="Employee"
-          placeholder="Select an employee"
-          required
-          data={employees.map(employee => ({ value: employee.id, label: employee.name }))}
-          onChange={(value) => setSelectedEmployeeId(value)}
-        />
-        <Button variant="outline" onClick={handleDelete}>
+      <p>Are you sure you want to delete this employee?</p>
+        <Button variant="outline" color='red' onClick={handleDelete}>
           Delete Employee
         </Button>
-      <Button
-            className="text-amber-500 hover:bg-slate-400/50 m-3"
+      <Button variant='outline' 
+            className=" hover:bg-slate-400/50 m-3"
             onClick={handleCancel}
           >
             Cancel
@@ -205,5 +174,5 @@ export const DeleteEmployee = () => {
   </div>
   )}
   </div>
-  );
+  )
   };

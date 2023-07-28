@@ -99,9 +99,7 @@ const employeesSlice = createSlice({
       });
       builder.addCase(FetchEmployees.rejected, (state, action) => {
         console.error('Failed to fetch employees:', action.error);
-        // Handle the error in your state if necessary, for example:
-        // return { ...state, error: action.error };
-        // Or just return the current state:
+      
         return state;
       });
   },
